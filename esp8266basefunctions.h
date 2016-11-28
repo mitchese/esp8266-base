@@ -1,31 +1,27 @@
-
-
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // #wifimanager
 //define your default values here, if there are different values in config.json, they are overwritten.
 char mqtt_server[40];
 char mqtt_port[6] = "1883";
-//char blynk_token[34] = "YOUR_BLYNK_TOKEN";
 
 //flag for saving data
 bool shouldSaveConfig = false;
 
-//callback notifying us of the need to save config
+void MQTTcallback(char*, byte*, unsigned int);
+
+// stuff so we can include the ChipID in the MQTT topics
+String chipid;
+char chipidchar[6];
+String switchtopic;
+String listentopic;
+
+//WifiManager will call this to save configuration
 void saveConfigCallback () {
   Serial.println("Should save config");
   shouldSaveConfig = true;
 }
 
-void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived [");
-  Serial.print(topic);
-  Serial.print("] ");
-  for (int i=0;i<length;i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.println();
-}
+
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -35,12 +31,12 @@ void reconnect() {
   while (!client.connected()) {
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
-    if (client.connect("arduinoClient")) {
+    if (client.connect(chipidchar)) {
       Serial.println("connected");
       // Once connected, publish an announcement...
-      client.publish("outTopic","hello world");
+      client.publish("esp8266boot","connected");
       // ... and resubscribe
-      client.subscribe("inTopic");
+      //client.subscribe("inTopic");
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -51,22 +47,31 @@ void reconnect() {
   }
 
 }
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// #ota
-const char* host = "esp8266-webupdate";
+
 ESP8266WebServer server(80);
 //WiFiServer TelnetServer(8266);
 const char* serverIndex = "<form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><input type='submit' value='Update'></form>";
 
 
 void setupBaseFunctions() {
-    // put your setup code here, to run once:
+  // put your setup code here, to run once:
   Serial.begin(115200);
   Serial.println();
 
   //clean FS, for testing
   //SPIFFS.format();
 
+
+  chipid = ESP.getChipId();
+  chipid.toCharArray(chipidchar, sizeof chipidchar); // this is for connecting to
+
+  switchtopic = String("home/esp/") + chipid; // this is where we publish to
+  listentopic = String("home/esp/") + chipid ;
+
+  //const char* host = "testchipid";
+  // "esp8266-" is 8 char, chipidchar is a 32bit integer so max size is 10 digits
+  char host[20];
+  sprintf(host, "esp8266-%s", chipidchar);
 
   //read configuration from FS json
   Serial.println("mounting FS...");
@@ -117,13 +122,13 @@ void setupBaseFunctions() {
 
   //reset settings - for testing
   //wifiManager.resetSettings();
-  
+
   //set config save notify callback
   wifiManager.setSaveConfigCallback(saveConfigCallback);
 
   //set static ip
   //wifiManager.setSTAStaticIPConfig(IPAddress(10,0,1,99), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
-  
+
   //add all your parameters here
   wifiManager.addParameter(&custom_mqtt_server);
   wifiManager.addParameter(&custom_mqtt_port);
@@ -133,7 +138,7 @@ void setupBaseFunctions() {
   //set minimu quality of signal so it ignores AP's under that quality
   //defaults to 8%
   //wifiManager.setMinimumSignalQuality();
-  
+
   //sets timeout until configuration portal gets turned off
   //useful to make it all retry or go to sleep
   //in seconds
@@ -143,7 +148,7 @@ void setupBaseFunctions() {
   //if it does not connect it starts an access point with the specified name
   //here  "AutoConnectAP"
   //and goes into a blocking loop awaiting configuration
-  if (!wifiManager.autoConnect("AutoConnectAP")) {
+  if (!wifiManager.autoConnect()) {
     Serial.println("failed to connect and hit timeout");
     delay(3000);
     //reset and try again, or maybe put it to deep sleep
@@ -183,38 +188,36 @@ void setupBaseFunctions() {
   Serial.println(WiFi.localIP());
   // todo: convert charstring in mqtt_server to IPAddress and give to setServer; also respect port from web gui
   client.setServer(mqtt_server, atoi(mqtt_port));
-  client.setCallback(callback);
+  client.setCallback(MQTTcallback);
 
-  
-
-   if(WiFi.waitForConnectResult() == WL_CONNECTED){
+  if (WiFi.waitForConnectResult() == WL_CONNECTED) {
     MDNS.begin(host);
-    server.on("/", HTTP_GET, [](){
+    server.on("/", HTTP_GET, []() {
       server.sendHeader("Connection", "close");
       server.sendHeader("Access-Control-Allow-Origin", "*");
       server.send(200, "text/html", serverIndex);
     });
-    server.on("/update", HTTP_POST, [](){
+    server.on("/update", HTTP_POST, []() {
       server.sendHeader("Connection", "close");
       server.sendHeader("Access-Control-Allow-Origin", "*");
-      server.send(200, "text/plain", (Update.hasError())?"FAIL":"OK");
+      server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
       ESP.restart();
-    },[](){
+    }, []() {
       HTTPUpload& upload = server.upload();
-      if(upload.status == UPLOAD_FILE_START){
+      if (upload.status == UPLOAD_FILE_START) {
         Serial.setDebugOutput(true);
         WiFiUDP::stopAll();
         Serial.printf("Update: %s\n", upload.filename.c_str());
         uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
-        if(!Update.begin(maxSketchSpace)){//start with max available size
+        if (!Update.begin(maxSketchSpace)) { //start with max available size
           Update.printError(Serial);
         }
-      } else if(upload.status == UPLOAD_FILE_WRITE){
-        if(Update.write(upload.buf, upload.currentSize) != upload.currentSize){
+      } else if (upload.status == UPLOAD_FILE_WRITE) {
+        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
           Update.printError(Serial);
         }
-      } else if(upload.status == UPLOAD_FILE_END){
-        if(Update.end(true)){ //true to set the size to the current progress
+      } else if (upload.status == UPLOAD_FILE_END) {
+        if (Update.end(true)) { //true to set the size to the current progress
           Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
         } else {
           Update.printError(Serial);
@@ -225,7 +228,6 @@ void setupBaseFunctions() {
     });
     server.begin();
     MDNS.addService("http", "tcp", 80);
-    //TelnetServer.begin();
     Serial.printf("Ready! Open http://%s.local in your browser\n", host);
   } else {
     Serial.println("WiFi Failed");
@@ -233,7 +235,7 @@ void setupBaseFunctions() {
 }
 
 void loopBaseFunctions() {
-    // This is the PubSubClient
+  // This is the PubSubClient
   if (!client.connected()) {
     reconnect();
   }

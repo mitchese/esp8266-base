@@ -1,9 +1,3 @@
-// base working set: 
-// - WifiManager
-// - PubSubClient
-// - OTA Firmware Upgrade 
-// - reset button
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // For wifimanager
 #include <FS.h>                   //this needs to be first, or it all crashes and burns...
@@ -26,15 +20,27 @@
 #include "esp8266basefunctions.h"
 
 
+
+void MQTTcallback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
+
+
 void setup() {
-  setupBaseFunctions(); // <-- must be FIRST 
+  setupBaseFunctions(); // <-- must be FIRST
   // at this point you're connected, MQTT is working serial is enabled 115200
-  
+
 }
 
 void loop() {
   // add code here
 
-  //run at the end of each cycle: 
+  //run at the end of each cycle:
   loopBaseFunctions();
 }
