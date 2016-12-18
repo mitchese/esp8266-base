@@ -20,8 +20,6 @@
 #include <ESP8266mDNS.h>
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define REFORMAT 0
-// Compressed everything into this .h file, to clean up the actual function
-//#include "esp8266basefunctions.h"
 // Functions and variables used in the Wifi 
 void loopBaseFunctions();
 void setupBaseFunctions();
@@ -143,7 +141,7 @@ void setupBaseFunctions() {
     //
     #if REFORMAT == 1
     SPIFFS.format();              // this will forget all custom params (MQTT)
-    #endif
+    #else
     Serial.println("mounted file system");
     if (SPIFFS.exists("/config.json")) {
       //file exists, reading and loading
@@ -171,12 +169,13 @@ void setupBaseFunctions() {
         }
       }
     }
+    #endif
   } else {
     Serial.println("failed to mount FS");
   }
-  WiFiManagerParameter custom_mqtt_server("server", "192.168.140.14", mqtt_server, 20);
+  WiFiManagerParameter custom_mqtt_server("server", "192.168.1.1", mqtt_server, 20);
   WiFiManagerParameter custom_mqtt_port("port", "1883", mqtt_port, 5);
-  WiFiManagerParameter custom_mqtt_subscribe("subscribe", "home/esp/kitchen/set", mqtt_topic, 40);
+  WiFiManagerParameter custom_mqtt_subscribe("subscribe", "home/esp/kitchen", mqtt_topic, 40);
   WiFiManager wifiManager;
 
   #if REFORMAT == 1
